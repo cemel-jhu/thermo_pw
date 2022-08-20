@@ -217,7 +217,7 @@ SUBROUTINE setup_tpw()
   ! time reversal operation is set up to 0 by default
   t_rev = 0
   !
-  ALLOCATE( m_loc( 3, nat ) )
+  if (.NOT. ALLOCATED(m_loc)) ALLOCATE( m_loc( 3, nat ) )
   IF ( noncolin ) THEN
      !
      ! gamma_only and noncollinear not allowed
