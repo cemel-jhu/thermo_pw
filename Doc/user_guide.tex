@@ -525,16 +525,16 @@ ntemp_plot : number of temperatures in the plots where the
              Default: integer 0
 temp_plot(ntemp_plot)  : A real array of dimension ntemp_plot with 
              the values of the temperature.
-             No Default value, must be given when ntemp_plot is 
-             not zero.
+             No Default value, must be given (in K) when 
+             ntemp_plot is not zero. 
 npress_plot : number of pressures in the plots where the 
              pressure is a parameter. When 0 these plots are 
              not produced.
              Default: integer 0
 press_plot(npress_plot) : A real array of dimension npress_plot 
              with the values of the pressure.
-             No Default value, must be given when npress_plot is 
-             not zero.
+             No Default value, must be given (in kbar) when 
+             npress_plot is not zero.
 nvol_plot : number of volumes in the plots where the volume is a 
             parameter. When 0 these plots are not produced.
             Default: integer 0
@@ -1456,6 +1456,11 @@ nq1_d, nq2_d, nq3_d : thick mesh for phonon dos calculation.
 phdos_sigma   : the smearing used for phonon dos calculation 
                 (in cm^-1).
                 Default: real 2. cm^-1
+idebye        : if 1, 2, or 3 the code computes the Debye 
+                temperature as a function of temperature from 
+                the free energy, the vibrational energy, or the 
+                heat capacity respectively.
+                Default: integer 0
 after_disp    : if .TRUE. the dynamical matrices are supposed 
                 to be already available in files in the current 
                 directory. This option is needed to restart when 
@@ -1675,7 +1680,8 @@ a plot of the energy as a function of the volume, of the pressure
 as a function of the volume and of the enthalpy as a function of
 pressure are produced. The volume is changed by 
 changing only \texttt{celldm(1)}. \texttt{celldm(2)...celldm(6)} remain fixed
-at the values given as input of \texttt{pw.x}. 
+at the values given as input of \texttt{pw.x} or can be read from file
+using the option \texttt{lgeo\_from\_file=.TRUE.}. 
 When \texttt{lmurn=.FALSE.} the energy is calculated in a uniform
 grid of parameters composed of \texttt{ngeo(1)} $\times$ \texttt{ngeo(2)...}
 $\times$ \texttt{ngeo(6)} points.
@@ -1692,7 +1698,13 @@ Presently no graphical tool is implemented to plot the energy
 for monoclinic and triclinic crystal systems. However in all cases
 the enthalpy as a function of pressure is shown. Moreover
 separate plots show the crystal parameters as well as the volume as 
-a function of pressure.
+a function of pressure. When in the directory \texttt{elastic\_constants}
+there are the elastic constants for each geometry (calculated by the option
+\texttt{what=elastic\_constants\_geo}), these are interpolated
+at the pressure dependent crystal parameters and shown on output.
+Using the input variable \texttt{lgeo\_to\_file=.TRUE.} the code writes
+on file the crystal parameters that for each \texttt{celldm(1)} 
+of the grid of crystal structures give a uniform pressure.
 When \texttt{lmurn=.FALSE.} the bulk modulus
 is not calculated. To obtain it, you can calculate the elastic constants at the
 minimum geometry (see the option \texttt{what='mur\_lc\_elastic\_constants'}). 
@@ -1828,10 +1840,24 @@ do_scf_relax : if .TRUE. the code makes a self-consistent relax
              If .FALSE. the coordinates of the input geometry 
              are strained uniformly to the equilibrium geometry.
              Default: logical .FALSE. 
+lgeo_from_file : if .TRUE. the input geometries are read from file.
+             ngeo(1) must have the total number of geometries 
+             and lmurn must be .TRUE..
+             Default : .FALSE.
+lgeo_to_file : if .TRUE. at the end of the calculation the code
+             writes in a file the geometries that correspond to
+             the optimized crystal parameters for each value of 
+             celldm(1) of the grid of geometries.
+             Default : .FALSE.
 flenergy   : name of the file that contains the energy in a 
              form that can be used by gnuplot to make contour 
              plots.
              Default: character(len=*) 'output_energy'
+flgeom     : name of the file that contains the geometries  
+             requested with the flags lgeo_to_file or 
+             lgeo_from_file. The file is in the directory 
+             energy files.
+             Default: character(len=*) 'output_geometry'
 flpsenergy : file with the contour plots of the energy as a 
              function of the crystal parameters.
              Default: character(len=*) 'output_energy'
@@ -1967,7 +1993,7 @@ the thermal expansion tensor which
 is compared with that obtained from the numerical derivatives of the 
 crystal parameters obtained from the minimization of the Helmholtz free energy.
 If many files with the elastic constants, one for each geometry, as
-produced with the option \texttt{elastic\_constants\_t}, are found
+produced with the option \texttt{elastic\_constants\_geo}, are found
 in the \texttt{elastic\_constants} directory and \texttt{lb0\_t=.TRUE.}, the bulk modulus and 
 the elastic constants
 are computed as a function of temperature within the ``quasi-static
@@ -1978,7 +2004,7 @@ If one or many elastic constants files are found in the
 and elastic constants are computed as a function of temperature 
 within the ``quasi-harmonic approximation" and are used
 to calculate the other thermodynamic properties (see a more detailed
-discussion in the option \texttt{what=elastic\_constants\_t}).
+discussion in the option \texttt{what=elastic\_constants\_geo}).
 In addition to the
 quantities plotted for cubic solids, the code plots also the elastic
 constants and the bulk modulus as a function of the temperature and
@@ -2079,10 +2105,11 @@ with_eigen    : if .TRUE. use the eigenvectors of the
                 the plotted Gruneisen bands (both in cubic 
                 and anisotropic solids).
                 Default: logical .FALSE. 
-ltherm_glob   : when .FALSE. the vibrational (plus electronic) free energy
-                is fitted by a polynomial, while only the static energy is
-                fitted by an equation of state. When .TRUE. a different
-                equation of state is fitted at each temperature.
+ltherm_glob   : when .FALSE. the vibrational (plus electronic) 
+                free energy is fitted by a polynomial, while 
+                only the static energy is fitted by an equation 
+                of state. When .TRUE. a different equation of 
+                state is fitted at each temperature.
                 Default: logical .FALSE.
 poly_degree_ph : degree of the polynomial used to interpolate 
                 the vibrational free energy. Presently only the 
@@ -2101,6 +2128,10 @@ poly_degree_bfact : degree of the polynomial used to interpolate
 poly_degree_elc : degree of the polynomial used to interpolate 
                 the elastic constants. Presently only the values 
                 1, 2, 3, or 4 are available for anisotropic solids.
+                Default: integer 4
+poly_degree_grun : degree of the polynomial used to interpolate 
+                the frequencies (Used only when lmurn=.TRUE. 
+                otherwise it is 2).
                 Default: integer 4
 lv0_t         : if .TRUE.  the calculation of the thermal 
                 expansion with Gruneisen parameters uses the 
@@ -2127,10 +2158,6 @@ lb0_t         : if .TRUE. the calculation of the thermal expansion
                 elastic constants file all the quantities that 
                 depend on elastic properties are not computed.
                 Default: logical .TRUE.
-poly_degree_grun : degree of the polynomial used to interpolate 
-                the frequencies (Used only when lmurn=.TRUE. 
-                otherwise it is 2).
-                Default: 4
 add_empirical : If .TRUE. adds to the free energy an empirical term
                 that can represent the anharmonic contribution 
                 or the electronic contribution.
@@ -2138,7 +2165,7 @@ add_empirical : If .TRUE. adds to the free energy an empirical term
 efe           : The type of empirical free energy
                 1) (alpha1+alpha2 * V) T^2
                 2) -2/3 k_B nat alpha1 (v/v0p)^alpha2 T^2
-                Default: 0 (must be explicitely given)
+                Default: 0 (must be explicitly given)
 alpha1        : parameter of the empirical free energy (see above)
                 in eV/K^2 in 1), in 1/K in 2). 
                 Default: 0.0
@@ -2159,9 +2186,12 @@ nsigma        : The number of smearing values for which there are
                 restart3, ..., restart#nsigma.
                 Default: 0 (option not used). Minimum value 3 to
                 make a quadratic fit of the energy.
-sigma_ry      : the value of the smearing for each directory restart.
+sigma_ry(nsigma): the value of the smearing for each directory restart.
                 In Ry units.
-                Default: Must be set of each nsigma by the user.
+                Default: Must be set for each nsigma by the user.
+lhugoniot     : If .TRUE. the code plots T(p) and V(p) along the 
+                Hugoniot curve.
+                Default: .FALSE.
 flgrun        : file where the Gruneisen parameters are written. 
                 Default: character(len=*) 'output_pgrun.dat'
 flpgrun       : file where the Gruneisen parameters in a plotable 
@@ -2248,7 +2278,7 @@ When \texttt{all\_geometries\_together=.TRUE.}: number of tasks of the
 phonon code times the number of geometries. \\
 
 \newpage
-{\color{coral}\section{what='elastic\_constants\_t'}}
+{\color{coral}\section{what='elastic\_constants\_geo'}}
 \color{black}
 
 With this option the code can compute the elastic constants and elastic
@@ -2291,7 +2321,7 @@ By default, the code computes only the elastic constants at $T=0$ K
 as second derivatives of the energy and writes them on files in the 
 directory \texttt{elastic\_} \texttt{constants}. A run of \texttt{thermo\_pw} using 
 \texttt{what='mur\_lc\_t'} having on files the $T=0$ K elastic constants
-contained in the directory \texttt{elastic\_constants}
+in the directory \texttt{elastic\_constants}
 allows the calculation of the anharmonic properties using temperature
 dependent elastic constants and bulk moduli obtained by interpolating 
 (within the ``quasi-static approximation") the elastic constants computed 
@@ -2304,14 +2334,23 @@ When both \texttt{use\_free\_energy=.TRUE.} and
 \texttt{lel\_free\_energy=.TRUE.} the electronic free energy is
 added to the free energy before computing the elastic constants. In this case 
 the code expects to find on file (in \texttt{therm\_files}) the electronic 
-thermodynamic properties for each perturbed geometry. When 
+thermodynamic properties for each perturbed geometry. These files are
+produced with this same option and the flags 
 \texttt{use\_free\_energy=.FALSE.} and 
-\texttt{lel\_free\_energy=} \texttt{.TRUE.} the code computes the electronic
+\texttt{lel\_free\_energy=} \texttt{.TRUE.}. In this case the code 
+computes the electronic
 thermodynamic properties at each perturbed geometry and writes them on 
-file. In this case the electronic free energy is not added to the free
-energy. Note that the user must be careful to use the same value for the
+file, without calculating the elastic constants.
+Note that the user must be careful to use the same value for the
 \texttt{lel\_free\_energy} flag with this option and in the following
 \texttt{mur\_lc\_t} calculation that interpolates the elastic constants.
+After computing the elastic constants at $T=0$ K with the present option
+one can also run another \texttt{thermo\_pw} calculation with the option
+\texttt{what='mur\_lc'} computing the crystal parameters for a range
+of pressures (using \texttt{pmax} and \texttt{pmin} input variables). If
+the elastic constants are found in the directory \texttt{elastic\_constants} 
+they are interpolated at the pressure dependent crystal parameters and
+plotted on output.
 The variables that control this run are:
 
 %\begin{tcolorbox}
@@ -2500,7 +2539,9 @@ In this case you can set \texttt{start\_geometry=last\_geometry},
 \texttt{max\_seconds} in the \texttt{thermo\_pw} input,
 and \texttt{recover=.TRUE.} in the \texttt{ph.x} input. You need to
 repeat this for all the geometries and finally you can collect the results
-and compute the anharmonic properties.
+and compute the anharmonic properties. Note that when
+\texttt{start\_geometry} or \texttt{last\_geometry} are set by the
+user the anharmonic calculation is skipped.
 
 
 \newpage
@@ -2578,13 +2619,6 @@ and high temperature Birch-Murnaghan equations (still in experimental form).
 the Gibbs free energy of a solid as a function of pressure and temperature and
 prints the thermodynamic quantities. Presently it supports only the model
 of Gustafson for tungsten.
-
-\item \texttt{eos\_test.x} reads the parameters of an equation of state,
-and optionally the coefficients of a polynomial. Produces in output
-a file with the energy, the pressure, the bulk modulus, and its first
-and possibly second derivative with respect to pressure.
-It also checks the analytic results with those obtained by numerical
-finite differences.
 
 \item \texttt{epsilon\_tpw.x} generalizes the routine
 \texttt{epsilon.f90} of the \qe\ distribution. It calculates the 
@@ -2697,6 +2731,13 @@ For an example of its use see \texttt{tools\_input/supercell.in}.
 \item \texttt{test\_colors.x} produces a postscript file with the 
 \texttt{gnuplot} colors that can be used in the plots.   
 
+\item \texttt{test\_eos.x} reads the parameters of an equation of state,
+and optionally the coefficients of a polynomial. Produces in output
+a file with the energy, the pressure, the bulk modulus, and its first
+and possibly second derivative with respect to pressure.
+It also checks the analytic results with those obtained by numerical
+finite differences writing on file the relative errors.
+
 \item \texttt{template.x} This is an example on how to write a tool
 code that can interface with the \texttt{QE} routines and all the
 library routines of \texttt{thermo\_pw}. The template activates 
@@ -2806,6 +2847,8 @@ written on output. When the user requests more levels without specifying
 their colors, the code continues with three \texttt{yellow} levels, 
 then \texttt{pink}, \texttt{cyan}, \texttt{orange}, \texttt{black}, and
 when more than $24$ levels are requested the sequence of colors is repeated.
+When \texttt{lgeo\_to\_file=.TRUE.} the path written on file is shown
+in this plot with an \texttt{orange} points connected by a line.
 For orthorhombic solids the code produces many postscript figures, one
 for each value of $c/a$ on the grid. In each figure there is a contour
 plot of the energy as a function of $a$ and $b/a$. The colors of the levels
@@ -2814,6 +2857,14 @@ by the code the entire energy range (for all $c/a$) is divided into nine
 levels so each figure might have less that nine curves.
 For crystal systems with more crystallographic parameters, this figure is
 not available.
+
+\item
+Elastic constants (elastic compliances) as a function of pressure. 
+The elastic constants (elastic compliances) are shown in different
+plots in red. In a final plot all the elastic constants (elastic
+compliances) are shown on the same figure in \texttt{red, green, blue, yellow, 
+pink, cyan, orange and black} with same order of the previous plots.
+When there are more than eight elastic constants the colors are repeated.
 
 \item
 The crystal parameters and the volume as a function of pressure.

@@ -18,9 +18,12 @@ USE kinds,            ONLY : DP
 USE thermo_mod,       ONLY : celldm_geo, omega_geo, central_geo, density, &
                              energy_geo
 USE control_mur,      ONLY : vmin, b0, b01, b02, emin, lmurn
+USE control_thermo,   ONLY : lgeo_from_file
+USE geometry_file,    ONLY : compute_celldm_geo_file
 USE equilibrium_conf, ONLY : celldm0, omega0, tau0, at0, tau0_crys
 USE initial_conf,     ONLY : ibrav_save, tau_save_crys
 USE control_xrdp,     ONLY : lxrdp
+USE control_pressure, ONLY : pressure_kb
 
 USE ions_base,        ONLY : nat, tau
 USE cell_base,        ONLY : at, bg, omega, cell_base_init
@@ -48,8 +51,12 @@ IF (lmurn) THEN
    CALL write_mur_p()
    CALL plot_mur()
    CALL plot_mur_p()
-   CALL compute_celldm_geo(vmin, celldm0, &
+   IF (lgeo_from_file) THEN
+      CALL compute_celldm_geo_file(vmin, celldm0, pressure_kb)
+   ELSE
+      CALL compute_celldm_geo(vmin, celldm0, &
                    celldm_geo(1,central_geo), omega_geo(central_geo))
+   ENDIF
 ELSE
    CALL write_gnuplot_energy(nwork)
    CALL quadratic_fit()
@@ -62,6 +69,23 @@ ENDIF
 CALL mp_bcast(celldm0, meta_ionode_id, world_comm)
 CALL mp_bcast(emin, meta_ionode_id, world_comm)
 CALL write_minimum_energy_data()
+
+IF (.NOT.lmurn) THEN
+!
+!   If npress>0 the crystal parameters as a function of pressure have
+!   been calculated. Interpolate the elastic constants at those
+!   geometries.
+!
+   CALL write_elastic_p()
+!
+ELSEIF (lgeo_from_file) THEN
+   CALL write_elastic_mur_p()
+ENDIF
+CALL plot_elastic_t1(2, .FALSE.)
+CALL plot_elastic_t1(3, .FALSE.)
+CALL plot_macro_elastic_p()
+CALL plot_sound_speed_p()
+
 trd_ht=.FALSE.
 rd_ht=0.0_DP
 zero=0.0_DP
@@ -85,7 +109,7 @@ CALL cryst_to_cart(nat, tau0_crys, bg, -1)
 !
 !  recompute the density at the minimum volume
 !
-     CALL compute_density(omega,density)
+     CALL compute_density(omega,density,.TRUE.)
 !
 !  compute the xrdp at the minimum volume if required by the user
 !

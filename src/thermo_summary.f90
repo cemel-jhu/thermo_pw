@@ -142,7 +142,7 @@ SUBROUTINE thermo_summary()
                                   &minimum volume ")')
           IF (frozen_ions) WRITE(stdout,'(5x,"The ions are frozen" )')
           lelc = .TRUE.
-     CASE ('elastic_constants_t')
+     CASE ('elastic_constants_geo')
           WRITE(stdout,'(5x,"Computing the temperature dependent elastic" )')
           WRITE(stdout,'(5x,"constants within quasi-harmonic approximation" )')
           WRITE(stdout,'(5x,"for several geometries" )')
@@ -418,7 +418,7 @@ WRITE(stdout,'(5x,70("-"))')
 !  ----------------------------------------------------------------------
 !  Information on the density
 !
-  CALL compute_density(omega,density)
+  CALL compute_density(omega,density,.TRUE.)
 !
 !  ----------------------------------------------------------------------
 !  Brillouin zone plot

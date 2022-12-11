@@ -100,10 +100,8 @@ SUBROUTINE thermo_setup()
   !
   !  
   cubic=(ibrav==1.OR.ibrav==2.OR.ibrav==3) 
-  IF ((npress_plot>0.OR.ntemp_plot>0).AND.(.NOT.cubic)) &
-    CALL errore('thermo_setup','npress_plot and ntemp_plot need cubic solids',1) 
-  IF ((npress_plot>0.OR.ntemp_plot>0).AND.(.NOT.lmurn)) &
-    CALL errore('thermo_setup','npress_plot and ntemp_plot need lmurn=.TRUE.',1) 
+!  IF ((npress_plot>0.OR.ntemp_plot>0).AND.(.NOT.lmurn)) &
+!    CALL errore('thermo_setup','npress_plot and ntemp_plot need lmurn=.TRUE.',1) 
   !
   CALL set_temperature()
   !
@@ -280,7 +278,7 @@ SUBROUTINE thermo_setup()
 !
   IF ( ngeo(1)==0 ) THEN
      IF (what(1:4) == 'scf_') ngeo=1
-     IF (what(1:6) == 'mur_lc'.OR.what=='elastic_constants_t') THEN
+     IF (what(1:6) == 'mur_lc'.OR.what=='elastic_constants_geo') THEN
         IF (lmurn) THEN
            ngeo(1)=9
            DO igeo=2,6

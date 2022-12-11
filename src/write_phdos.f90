@@ -39,7 +39,7 @@ SUBROUTINE write_phdos(igeom)
   INTEGER, INTENT(IN) :: igeom
 
   CHARACTER(LEN=256) :: filedos, filename
-  REAL(DP) :: e, emin, emax, dosofe(2)
+  REAL(DP) :: e, emin, emax, dosofe
   REAL(DP), ALLOCATABLE :: gen_dos(:,:)
   INTEGER :: n, i, ndos, nq, startq, lastq, nq_eff, na, ijpol, n_eff, iundos
   INTEGER :: find_free_unit
@@ -125,7 +125,7 @@ SUBROUTINE write_phdos(igeom)
      ndos = ndos_input
   ELSE
      ndos = NINT ( (emax - emin) / deltafreq + 1.51d0 )
-     ndos_input = ndos
+!     ndos_input = ndos
   END IF
 !
 ! initialize the phdos_save space 
@@ -142,11 +142,11 @@ SUBROUTINE write_phdos(igeom)
   DO n= 1, ndos
      e = emin + (n - 1) * deltafreq
      !
-     CALL dos_g(ph_freq_save(igeom)%nu, 1, 3*nat, nq_eff, &
+     CALL dos_ph(ph_freq_save(igeom)%nu, 3*nat, nq_eff, &
                 ph_freq_save(igeom)%wg, phdos_sigma, 0, e, dosofe)
      !
      phdos_save(igeom)%nu(n) = e
-     phdos_save(igeom)%phdos(n) = dosofe(1)
+     phdos_save(igeom)%phdos(n) = dosofe
   END DO
 !
 !  and collect the results

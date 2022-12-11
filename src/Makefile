@@ -43,6 +43,7 @@ deallocate_asyn.o \
 deallocate_thermo.o \
 deallocate_q2r.o \
 decorated_write.o \
+dos_ph.o \
 do_pwscf.o \
 do_berry.o \
 do_phonon_tpw.o \
@@ -56,6 +57,7 @@ evaluate_celldm.o \
 evaluate_vm.o \
 fast_phq_readin.o \
 find_band_sym_proj.o \
+find_t_debye.o \
 find_mode_sym_proj.o \
 find_representations_mode_q.o \
 find_symmetry.o \
@@ -63,6 +65,7 @@ fit_frequencies.o \
 gen_qpoints.o \
 generalized_phdos.o \
 generate_k_along_lines_kz.o \
+geometry_file.o \
 initialize_elastic_cons.o \
 initialize_thermo_work.o \
 interpolate_bfact.o \
@@ -98,11 +101,11 @@ matdyn_sub.o \
 plan_avg_sub.o \
 plot_anhar.o \
 plot_anhar_anis.o \
+plot_anhar_dw.o \
 plot_bz.o \
 plot_2d_bz.o \
 plot_dispersion.o \
 plot_dos.o \
-plot_dw_anhar.o \
 plot_e_ke.o \
 plot_e_nk.o \
 plot_ef.o \

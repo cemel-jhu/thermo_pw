@@ -193,12 +193,15 @@ SUBROUTINE initialize_thermo_work(nwork, part)
            lev_syn_1=.TRUE.
            lpwscf_syn_1=do_scf_relax
            CALL initialize_mur(nwork)
+           ALLOCATE(no_ph(nwork))
+           no_ph=.TRUE.
+           CALL summarize_geometries(nwork)
+           tot_ngeo=nwork
            IF (meta_ionode) ios = f_mkdir_safe( 'energy_files' )
            IF (meta_ionode) ios = f_mkdir_safe( 'gnuplot_files' )
            IF (lel_free_energy) THEN
               IF (meta_ionode) ios = f_mkdir_safe( 'therm_files' )
               IF (meta_ionode) ios = f_mkdir_safe( 'anhar_files' )
-              tot_ngeo=nwork
               CALL allocate_el_thermodynamics(tot_ngeo)
            ENDIF
         CASE ('mur_lc_bands') 
@@ -304,12 +307,13 @@ SUBROUTINE initialize_thermo_work(nwork, part)
            IF (meta_ionode) ios = f_mkdir_safe( 'phdisp_files' )
            IF (meta_ionode) ios = f_mkdir_safe( 'gnuplot_files' )
            IF (meta_ionode) ios = f_mkdir_safe( 'elastic_constants' )
-        CASE ('elastic_constants_t')
+        CASE ('elastic_constants_geo')
            lectqha=.TRUE.
            lph=use_free_energy
            IF (.NOT.lph) lpart2_pw=lel_free_energy
            lq2r = use_free_energy
            ltherm = use_free_energy
+           do_punch=use_free_energy
            CALL initialize_mur_qha(ngeom)
            IF (start_geometry_qha<1) start_geometry_qha=1
            IF (last_geometry_qha>ngeom) last_geometry_qha=ngeom
@@ -325,7 +329,14 @@ SUBROUTINE initialize_thermo_work(nwork, part)
            energy_geo=0.0_DP
            no_ph=.FALSE.
            IF (elastic_algorithm=='advanced'.OR.elastic_algorithm=='energy') &
+                                                                          THEN
+              ALLOCATE(omega_geo(nwork))
+              DO iwork=1,nwork
+                 omega_geo(iwork)=compute_omega_geo(ibrav_geo(iwork), &
+                                  celldm_geo(:,iwork))
+              ENDDO
               CALL summarize_geometries(nwork)
+           ENDIF
            IF (use_free_energy) THEN
               CALL allocate_thermodynamics()
               CALL allocate_anharmonic()
@@ -363,7 +374,7 @@ SUBROUTINE initialize_thermo_work(nwork, part)
               'mur_lc_disp',   &
               'mur_lc_t')
            CALL initialize_ph_work(nwork)
-        CASE ('elastic_constants_t')
+        CASE ('elastic_constants_geo')
            IF (use_free_energy) THEN
               CALL initialize_ph_work(nwork)
            ELSEIF (lel_free_energy) THEN
@@ -454,7 +465,7 @@ SUBROUTINE initialize_thermo_work(nwork, part)
                  IF (no_ph(iwork)) lpwscf(iwork)=.FALSE.
               ENDDO
            ENDIF
-        CASE ('elastic_constants_t')  
+        CASE ('elastic_constants_geo')  
            DO igeom_qha=start_geometry_qha, last_geometry_qha
               DO iwork=1,work_base
                  iwork_tot= (igeom_qha-1)*work_base + iwork
@@ -490,12 +501,12 @@ SUBROUTINE initialize_thermo_work(nwork, part)
               lpwband(iwork)=.TRUE.
            ENDDO
 !
-!  Here the case of elastic_constants_t. In this case we must
+!  Here the case of elastic_constants_geo. In this case we must
 !  do a el_dos calculation if use_free_energy is .FALSE. and
 !  lel_free_energy is .TRUE. or a phonon calculation is 
 !  use_free_energy is  .TRUE.
 !
-        CASE('elastic_constants_t')
+        CASE('elastic_constants_geo')
            IF (use_free_energy) THEN
               CALL initialize_flags_for_ph(nwork)
            ELSE
@@ -529,9 +540,11 @@ SUBROUTINE set_celldm_geo(celldm_geo, nwork)
 !   This routine sets the grid of values on celldm_geo.
 !
 USE kinds,         ONLY : DP
+USE control_thermo, ONLY : lgeo_from_file
 USE constants,     ONLY : pi
 USE thermo_mod,    ONLY : step_ngeo, ngeo, reduced_grid
 USE initial_conf,  ONLY : celldm_save
+USE geometry_file, ONLY : set_celldm_geo_from_file
 
 IMPLICIT NONE
 INTEGER, INTENT(IN) :: nwork
@@ -540,6 +553,11 @@ REAL(DP), INTENT(INOUT) :: celldm_geo(6,nwork)
 INTEGER  :: igeo1, igeo2, igeo3, igeo4, igeo5, igeo6
 INTEGER  :: iwork, i, total_work
 REAL(DP) :: angle1, angle2, angle3, delta(6)
+
+IF (lgeo_from_file) THEN
+   CALL set_celldm_geo_from_file(celldm_geo, ngeo(1))
+   RETURN
+ENDIF
 
 delta=0.0_DP
 DO i=1,6
@@ -600,7 +618,8 @@ END SUBROUTINE set_celldm_geo
 !-----------------------------------------------------------------------
 SUBROUTINE summarize_geometries(nwork)
 !-----------------------------------------------------------------------
-USE thermo_mod,    ONLY : ibrav_geo, celldm_geo, no_ph
+USE constants,     ONLY : bohr_radius_si
+USE thermo_mod,    ONLY : ibrav_geo, omega_geo, celldm_geo, no_ph
 USE initial_conf,  ONLY : celldm_save, ibrav_save
 USE io_global,     ONLY : stdout
 
@@ -622,6 +641,11 @@ WRITE(stdout,'(12x, i3, 6f10.5,/)') ibrav_save, celldm_save(:)
 DO igeo=1,nwork
    WRITE(stdout,'(5x,i5,": ", i3,6f10.5,l2)') igeo, ibrav_geo(igeo), &
                                    celldm_geo(:,igeo), .NOT.no_ph(igeo)
+ENDDO
+WRITE(stdout,'(/,5x,"Volumes: ",10x,"(a.u.)^3",10x,"(A)^3")')
+DO igeo=1,nwork
+   WRITE(stdout,'(5x,i5,2f20.10)') igeo, omega_geo(igeo), &
+                            omega_geo(igeo)*(bohr_radius_si)**3/1.D-30
 ENDDO
 WRITE(stdout,'(/,5x,70("-"))')
 
@@ -688,6 +712,8 @@ USE thermo_mod,    ONLY : ibrav_geo, ngeo, celldm_geo, energy_geo, ef_geo, &
 USE control_vol,   ONLY : nvol, vmin_input, vmax_input, deltav
 USE initial_conf,  ONLY : ibrav_save
 USE temperature,   ONLY : ntemp_plot
+USE geometry_file, ONLY : read_geometry_file
+USE control_thermo, ONLY : lgeo_from_file
 USE control_pressure, ONLY : npress, npress_plot
 USE control_mur_p, ONLY : vmin_p, b0_p, b01_p, b02_p, emin_p
 USE control_mur,   ONLY : p0
@@ -700,6 +726,7 @@ INTEGER              :: igeom
 INTEGER              :: compute_nwork
 REAL(DP)             :: compute_omega_geo
 
+IF (lgeo_from_file) CALL read_geometry_file(ngeo)
 nwork=compute_nwork()
 ALLOCATE(ibrav_geo(nwork))
 ALLOCATE(celldm_geo(6,nwork))
@@ -748,9 +775,12 @@ SUBROUTINE initialize_mur_qha(nwork)
 !   It allocates the variables el_con_ibrav_geo and el_con_celldm_geo. 
 !
 USE kinds,         ONLY : DP
+USE thermo_mod,    ONLY : ngeo
 USE ions_base,     ONLY : nat
 USE control_elastic_constants, ONLY : el_con_ibrav_geo, el_con_celldm_geo, &
                                       el_con_tau_crys_geo, el_con_omega_geo
+USE geometry_file, ONLY : read_geometry_file
+USE control_thermo, ONLY : lgeo_from_file
 USE initial_conf,  ONLY : ibrav_save, tau_save_crys
 USE io_global, ONLY : stdout
 
@@ -762,6 +792,7 @@ INTEGER              :: igeom, iwork
 INTEGER              :: compute_nwork
 REAL(DP)             :: compute_omega_geo
 
+IF (lgeo_from_file) CALL read_geometry_file(ngeo)
 nwork=compute_nwork()
 ALLOCATE(el_con_ibrav_geo(nwork))
 ALLOCATE(el_con_celldm_geo(6,nwork))

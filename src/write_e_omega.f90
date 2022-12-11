@@ -32,9 +32,13 @@ USE cell_base,        ONLY : ibrav
 USE thermo_mod,       ONLY : omega_geo, celldm_geo, energy_geo
 USE control_mur,      ONLY : omegap0
 USE control_vol,      ONLY : vmin_input, vmax_input
+USE control_thermo,   ONLY : lgeo_to_file
 USE control_pressure, ONLY : pressure, pressure_kb, pmin, pmax, deltap, &
                              npress, press
+USE uniform_pressure, ONLY : omega_p, density_p, celldm_p, p2_p, p4_p
+USE thermodynamics_mod, ONLY : b_from_v
 USE control_quartic_energy, ONLY : lquartic, lsolve
+USE geometry_file,      ONLY : write_geometry_output
 USE quadratic_surfaces, ONLY : fit_multi_quadratic, find_quadratic_extremum, &
                              print_chisq_quadratic
 USE quartic_surfaces, ONLY : fit_multi_quartic, find_quartic_extremum, &
@@ -51,10 +55,7 @@ INTEGER  :: i, iu_mur, ipress, idata, nvar, ndata
 INTEGER  :: find_free_unit, compute_nwork
 REAL(DP) :: ymin, ymin4
 REAL(DP) :: compute_omega_geo
-REAL(DP), ALLOCATABLE :: f(:), x(:,:), x_pos_min(:), x_min_4(:), e(:), &
-                         omega(:), celldmp(:,:) 
-TYPE(poly2) :: p2
-TYPE(poly4) :: p4
+REAL(DP), ALLOCATABLE :: f(:), x(:,:), x_pos_min(:), x_min_4(:), e(:), bm_p(:)
 
 IF (my_image_id /= root_image) RETURN
 !
@@ -84,9 +85,16 @@ ALLOCATE(x(nvar,ndata))
 ALLOCATE(x_pos_min(nvar))
 ALLOCATE(f(ndata))
 ALLOCATE(e(npress))
-ALLOCATE(omega(npress))
-ALLOCATE(celldmp(6,npress))
-CALL init_poly(nvar,p2)
+ALLOCATE(omega_p(npress))
+ALLOCATE(bm_p(npress))
+ALLOCATE(density_p(npress))
+ALLOCATE(celldm_p(6,npress))
+ALLOCATE(p2_p(npress))
+ALLOCATE(p4_p(npress))
+DO ipress=1,npress
+   CALL init_poly(nvar,p2_p(ipress))
+   IF (lquartic) CALL init_poly(nvar,p4_p(ipress))
+ENDDO
 
 IF (lquartic) ALLOCATE(x_min_4(nvar))
 DO idata=1, ndata
@@ -100,36 +108,40 @@ DO ipress=1, npress
    DO idata=1, ndata
      f(idata)=energy_geo(idata) + press(ipress) * omega_geo(idata) / ry_kbar
    END DO
-   CALL fit_multi_quadratic(ndata,nvar,lsolve,x,f,p2)
-!   CALL print_chisq_quadratic(ndata, nvar, x, f, p2)
-   CALL find_quadratic_extremum(nvar,x_pos_min,ymin,p2)
+   CALL fit_multi_quadratic(ndata,nvar,lsolve,x,f,p2_p(ipress))
+!   CALL print_chisq_quadratic(ndata, nvar, x, f, p2_p(ipress))
+   CALL find_quadratic_extremum(nvar,x_pos_min,ymin,p2_p(ipress))
    IF (lquartic) THEN
 !
 !   fit the enthalpy with a quartic polynomial and find the minimum
 !
-      CALL init_poly(nvar,p4)
-      CALL fit_multi_quartic(ndata,nvar,lsolve,x,f,p4)
-!      CALL print_quartic_polynomial(nvar,p4)
-!      CALL print_chisq_quartic(ndata, nvar, x, f, p4)
+      CALL fit_multi_quartic(ndata,nvar,lsolve,x,f,p4_p(ipress))
+!      CALL print_quartic_polynomial(nvar,p4_(ipress))
+!      CALL print_chisq_quartic(ndata, nvar, x, f, p4_p(ipress))
       x_min_4=x_pos_min
-      CALL find_quartic_extremum(nvar,x_min_4,ymin4,p4)
-      CALL expand_celldm(celldmp(1,ipress), x_min_4, nvar, ibrav)
+      CALL find_quartic_extremum(nvar,x_min_4,ymin4,p4_p(ipress))
+      CALL expand_celldm(celldm_p(1,ipress), x_min_4, nvar, ibrav)
 !
 !   find the volume that corresponds to the minimum geometry at this pressure
 !
-      omega(ipress)=compute_omega_geo(ibrav,celldmp(1,ipress))
-      e(ipress)=ymin4 - press(ipress) * omega(ipress) / ry_kbar
-      CALL clean_poly(p4)
+      omega_p(ipress)=compute_omega_geo(ibrav,celldm_p(1,ipress))
+      e(ipress)=ymin4 - press(ipress) * omega_p(ipress) / ry_kbar
    ELSE
-      CALL expand_celldm(celldmp(1,ipress), x_pos_min, nvar, ibrav)
-      omega(ipress)=compute_omega_geo(ibrav,celldmp(1,ipress))
-      e(ipress) = ymin - press(ipress) * omega(ipress) / ry_kbar
+      CALL expand_celldm(celldm_p(1,ipress), x_pos_min, nvar, ibrav)
+      omega_p(ipress)=compute_omega_geo(ibrav,celldm_p(1,ipress))
+      e(ipress) = ymin - press(ipress) * omega_p(ipress) / ry_kbar
    ENDIF
 ENDDO
-CALL find_omega0(press/ry_kbar,omega,npress,omegap0)
+CALL find_omega0(press/ry_kbar,omega_p,npress,omegap0)
 
-IF (vmin_input == 0.0_DP) vmin_input=omega(npress) * 0.98_DP
-IF (vmax_input == 0.0_DP) vmax_input=omega(1) * 1.02_DP
+IF (lgeo_to_file) CALL write_geometry_output(npress, press, celldm_p)
+DO ipress=1, npress
+   CALL compute_density(omega_p(ipress),density_p(ipress),.FALSE.)
+ENDDO
+CALL b_from_v(omega_p,press,npress,bm_p)
+
+IF (vmin_input == 0.0_DP) vmin_input=omega_p(npress) * 0.98_DP
+IF (vmax_input == 0.0_DP) vmax_input=omega_p(1) * 1.02_DP
 
 IF (ionode) THEN
 !
@@ -145,9 +157,9 @@ IF (ionode) THEN
                             &"enthalpy(p)(Ry)",4x,"pressure (kbar)")')
    END IF
    DO ipress=1,npress
-      WRITE(iu_mur,'(f18.10,3f20.10)') omega(ipress), e(ipress)+ &
-            pressure*omega(ipress), e(ipress)+&
-                         press(ipress)*omega(ipress)/ry_kbar, press(ipress) 
+      WRITE(iu_mur,'(f18.10,3f20.10)') omega_p(ipress), e(ipress)+ &
+            pressure*omega_p(ipress), e(ipress)+&
+                         press(ipress)*omega_p(ipress)/ry_kbar, press(ipress) 
    ENDDO 
    CLOSE(UNIT=iu_mur, STATUS='KEEP')
 !
@@ -157,9 +169,9 @@ IF (ionode) THEN
    WRITE(iu_mur,'( "# pressure (kbar)",3x,"celldm(1)",7x,"celldm(2)",7x,&
               &"celldm(3)",7x,"celldm(4)",7x,"celldm(5)",7x,"celldm(6)" )')
    DO ipress=1,npress
-      WRITE(iu_mur,'(7f15.8)') press(ipress), celldmp(1, ipress), &
-               celldmp(2, ipress), celldmp(3, ipress), celldmp(4, ipress), &
-               celldmp(5, ipress), celldmp(6, ipress)
+      WRITE(iu_mur,'(7f15.8)') press(ipress), celldm_p(1, ipress), &
+               celldm_p(2, ipress), celldm_p(3, ipress), celldm_p(4, ipress), &
+               celldm_p(5, ipress), celldm_p(6, ipress)
    ENDDO 
    CLOSE(UNIT=iu_mur, STATUS='KEEP')
 END IF
@@ -168,9 +180,6 @@ DEALLOCATE(x)
 DEALLOCATE(x_pos_min)
 DEALLOCATE(f)
 DEALLOCATE(e)
-DEALLOCATE(omega)
-DEALLOCATE(celldmp)
-CALL clean_poly(p2)
 
 IF (lquartic) DEALLOCATE(x_min_4)
 
@@ -189,6 +198,7 @@ SUBROUTINE write_e_omega_t(itemp, phf, ndatatot)
 !
 ! Note that the extrapolation can be done only in a limited range of
 ! pressures with respect to the pressure of the computed geometries.
+! Extrapolation does not work.
 !
 ! In output we write also the volume omega0 extrapolated at zero pressure.
 ! It can be used to plot V/V0 as a function of pressure. Note however 

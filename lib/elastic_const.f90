@@ -30,6 +30,51 @@ MODULE elastic_constants
   REAL(DP) :: press=0.0_DP                  ! estimated pressure
   REAL(DP) :: strs(3,3)=0.0_DP              ! estimated stress
 
+!
+!   Some array to simplify dealing with elastic constants
+!
+  CHARACTER(LEN=6) :: ect_names(21)
+
+  DATA  ect_names / &
+         'C_{11}', 'C_{12}', 'C_{13}', 'C_{14}', 'C_{15}', 'C_{16}', &
+                   'C_{22}', 'C_{23}', 'C_{24}', 'C_{25}', 'C_{26}', & 
+                             'C_{33}', 'C_{34}', 'C_{35}', 'C_{36}', & 
+                                       'C_{44}', 'C_{45}', 'C_{46}', & 
+                                                 'C_{55}', 'C_{56}', & 
+                                                           'C_{66}'  /
+                            
+  CHARACTER(LEN=6) :: ecm_names(21)
+
+  DATA  ecm_names / &
+         'S_{11', 'S_{12}', 'S_{13}', 'S_{14}', 'S_{15}', 'S_{16}',  &
+                  'S_{22}', 'S_{23}', 'S_{24}', 'S_{25}', 'S_{26}',  & 
+                            'S_{33}', 'S_{34}', 'S_{35}', 'S_{36}',  & 
+                                      'S_{44}', 'S_{45}', 'S_{46}',  & 
+                                                'S_{55}', 'S_{56}',  & 
+                                                          'S_{66}'   /
+  INTEGER, PARAMETER :: ec_types=14
+
+  INTEGER :: ec_laue_code(ec_types)  ! code of the laue class for each type
+  DATA  ec_laue_code / 32, 29, 23, 19, 25, 27, 25, 27, 22, 18, 20, &
+                       16, 16, 2 /
+
+  INTEGER  :: ec_present(21, ec_types)
+
+  DATA ec_present / &
+       1,2,0,0,0,0, 0,0,0,0,0, 0,0,0,0, 3,0,0, 0,0, 0, & ! 1  O_h
+       1,2,0,0,0,0, 0,0,0,0,0, 0,0,0,0, 3,0,0, 0,0, 0, & ! 2  T_h
+       1,2,3,0,0,0, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 0, & ! 3  D_6h
+       1,2,3,0,0,0, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 0, & ! 4  C_6h
+       1,2,3,0,0,0, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 0, & ! 5  D_3d hex
+       1,2,3,0,0,0, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 0, & ! 6  S_6  hex
+       1,2,3,6,0,0, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 0, & ! 7  D_3d trig
+       1,2,3,6,0,0, 0,0,0,7,0, 4,0,0,0, 5,0,0, 0,0, 0, & ! 8  S_6  trig
+       1,2,3,0,0,0, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 6, & ! 9  D_4h  
+       1,2,3,0,0,7, 0,0,0,0,0, 4,0,0,0, 5,0,0, 0,0, 6, & ! 10 C_4h 
+       1,2,3,0,0,0, 4,5,0,0,0, 6,0,0,0, 7,0,0, 8,0, 9, & ! 11 D_2h 
+       1,2,3,0,10,0, 4,5,0,11,0, 6,0,12,0, 7,0,13, 8,0, 9, & ! 12 C_2h b-uniq
+       1,2,3,0,0,10, 4,5,0,0,11, 6,0,0,12, 7,13,0, 8,0, 9, & ! 13 C_2h c-uniq
+       1,2,3,10,11,12, 4,5,13,14,15, 6,16,17,18, 7,19,20, 8,21, 9  / ! 14 C_i
 
   PUBLIC sigma_geo, epsilon_geo, epsilon_voigt, &      ! public variables
          el_con, el_compliances, press,   &            ! public variables
@@ -55,7 +100,10 @@ MODULE elastic_constants
          write_el_cons_on_file,     &    ! write elastic constants on file
          read_el_cons_from_file,    &    ! read elastic constants from file
          write_macro_el_on_file,    &    ! write macro-elasticity variables on file 
-         write_sound_on_file             ! write sound velocities on file 
+         write_sound_on_file,       &    ! write sound velocities on file 
+         get_ec_type,               &    ! gives the ec_type from laue class
+                                         ! and ibrav parameter
+         ec_present, ecm_names, ect_names
 
 
 CONTAINS
@@ -2070,46 +2118,51 @@ RETURN
 END SUBROUTINE print_macro_elasticity
 
 !-------------------------------------------------------------------------
-SUBROUTINE print_sound_velocities(ibrav, cmn, smn, density, vp, vb, vg)
+SUBROUTINE print_sound_velocities(ibrav, cmn, smn, density, vp, vb, vg, flag)
 !-------------------------------------------------------------------------
 !
 !  In input the elastic constants are in kbar, the elastic compliances 
 !  in kbar^-1 and the density in Kg/m^3. The sound velocity is printed
 !  in m/sec
+!  
+!  If flag is .true. prints the sound velocities otherwise print 
+!  a message only when the system is unstable
 !
 USE kinds, ONLY : DP
 IMPLICIT NONE
 INTEGER, INTENT(IN) :: ibrav
 REAL(DP), INTENT(IN) :: cmn(6,6), smn(6,6), density
 REAL(DP), INTENT(OUT) :: vp, vb, vg 
+LOGICAL, INTENT(IN) :: flag
 REAL(DP) :: b0v, e0v, g0v, nuv, b0r, e0r, g0r, nur
 
 REAL(DP) :: g0, b0
 
 CALL macro_elasticity( ibrav, cmn, smn, b0v, e0v, g0v, nuv, b0r, e0r, g0r, nur )
 
-WRITE(stdout, '(/,5x, "Voigt-Reuss-Hill average; sound velocities:",/)') 
+IF (flag) WRITE(stdout, '(/,5x, "Voigt-Reuss-Hill average; &
+                                                     &sound velocities:",/)') 
 
 g0 = ( g0r + g0v ) * 0.5_DP
 b0 = ( b0r + b0v ) * 0.5_DP
 
 IF (b0 + 4.0_DP * g0 / 3.0_DP > 0.0_DP) THEN
    vp = SQRT( ( b0 + 4.0_DP * g0 / 3.0_DP ) * 1.D8 / density )
-   WRITE(stdout, '(5x, "Compressional V_P = ",f12.3," m/s")') vp
+   IF (flag) WRITE(stdout, '(5x, "Compressional V_P = ",f12.3," m/s")') vp
 ELSE
    vp=0.0_DP
    WRITE(stdout, '(5x, "The system is unstable for compressional deformations")') 
 ENDIF
 IF (b0 > 0.0_DP) THEN
    vb = SQRT( b0 * 1.D8 / density )
-   WRITE(stdout, '(5x, "Bulk          V_B = ",f12.3," m/s")') vb
+   IF (flag) WRITE(stdout, '(5x, "Bulk          V_B = ",f12.3," m/s")') vb
 ELSE
    vb =0.0_DP
    WRITE(stdout, '(5x, "The system is unstable")') 
 END IF
 IF (g0 > 0.0_DP) THEN
    vg = SQRT( g0 * 1.D8 / density )
-   WRITE(stdout, '(5x, "Shear         V_G = ",f12.3," m/s")') vg
+   IF (flag) WRITE(stdout, '(5x, "Shear         V_G = ",f12.3," m/s")') vg
 ELSE
    vg = 0.0_DP
    WRITE(stdout, '(5x, "The system is unstable for shear deformations")') 
@@ -2398,8 +2451,10 @@ SUBROUTINE write_el_cons_on_file(temp, ntemp, ibrav, laue, el_cons_t, b0, &
                                                          filename, iflag)
 !-------------------------------------------------------------------------
 !
-!  iflag=0 writes the elastic constants
-!  iflag=1 writes the elastic compliances
+!  iflag=0 writes the elastic constants as a function of temperature
+!  iflag=1 writes the elastic compliances as a function of temperature
+!  iflag=2 writes the elastic constants as a function of pressure
+!  iflag=3 writes the elastic compliances as a function of pressure
 !
 USE kinds,      ONLY : DP
 USE io_global,  ONLY : meta_ionode, meta_ionode_id, stdout
@@ -2413,6 +2468,7 @@ CHARACTER(LEN=*), INTENT(IN) :: filename
 
 INTEGER :: itemp, iu_el_cons, ios
 INTEGER :: find_free_unit
+CHARACTER(LEN=7) :: label
 
 iu_el_cons=find_free_unit()
 IF (meta_ionode) &
@@ -2425,21 +2481,26 @@ IF (meta_ionode) &
 ! Plot the compressibility togheter with the elastic complinances
 !
 
-IF (iflag/=0) THEN
-   b0_t=1.0_DP/b0
-ELSE
+IF (MOD(iflag,2)==0) THEN
    b0_t=b0
+ELSE
+   b0_t=1.0_DP/b0
+ENDIF
+IF (iflag<2) THEN
+   label='  T(K) '
+ELSE
+   label='p(kbar)'
 ENDIF
 
 IF (meta_ionode) THEN
    SELECT CASE (laue)
       CASE(29,32)
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", &
-                  & 13x, "     C_12 ", 13x, "     C_44 ")')
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ", &
+                  & 13x, "     C_12 ", 13x, "     C_44 ")') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", &
-                  & 13x, "     S_12 ", 13x, "     S_44 ")')
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ", &
+                  & 13x, "     S_12 ", 13x, "     S_44 ")') label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,4e20.12)') temp(itemp), b0_t(itemp), &
@@ -2450,14 +2511,14 @@ IF (meta_ionode) THEN
 !
 !     D_3d
 !            
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", &
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ",  &
                   & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_33 ", 13x, &
-                       &" C_44 ", 13x, " C_14")')
+                       &" C_44 ", 13x, " C_14")') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", &
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ",  &
                   & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_33 ", 13x, &
-                       &" S_44 ", 13x, " S_14")')
+                       &" S_44 ", 13x, " S_14")') label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,7e20.12)') temp(itemp), b0_t(itemp), &
@@ -2469,14 +2530,14 @@ IF (meta_ionode) THEN
 !
 !     S_6
 !            
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", " C_11 ", 13x, &
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", " C_11 ", 13x, &
                   &" C_12 ", 13x, " C_13 ", 13x, " C_33 ", 13x, "C_44", 13x, &
-                  &" C_14", 13x, "C_25" )')
+                  &" C_14", 13x, "C_25" )') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", " S_11 ", 13x, &
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", " S_11 ", 13x, &
                   &" S_12 ", 13x, " S_13 ", 13x, " S_33 ", 13x, "S_44", 13x, &
-                  &" S_14", 13x, "S_25" )')
+                  &" S_14", 13x, "S_25" )') label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,8e20.12)')  temp(itemp), b0_t(itemp), &
@@ -2486,12 +2547,12 @@ IF (meta_ionode) THEN
                   el_cons_t(2,5,itemp)
          ENDDO
       CASE(19,23)
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", 13x,&
-                  &" C_12 ", 13x, " C_13 ", 13x, " C_33 ", 13x, "C_44" )')
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ", 13x,&
+             &" C_12 ", 13x, " C_13 ", 13x, " C_33 ", 13x, "C_44" )') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", 13x,&
-                  &" S_12 ", 13x, " S_13 ", 13x, " S_33 ", 13x, "S_44" )')
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ", 13x,&
+             &" S_12 ", 13x, " S_13 ", 13x, " S_33 ", 13x, "S_44" )') label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,6e20.12)') temp(itemp),  b0_t(itemp), &
@@ -2500,14 +2561,14 @@ IF (meta_ionode) THEN
                   el_cons_t(4,4,itemp)
          ENDDO
       CASE(22)
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", 13x,&
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ", 13x,&
                   &" C_12 ", 13x, " C_13 ", 13x, " C_33 ", 13x, "C_44", 13x, & 
-                  &" C_66 " )')
+                  &" C_66 " )') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", 13x,&
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ", 13x,&
                   &" S_12 ", 13x, " S_13 ", 13x, " S_33 ", 13x, "S_44", 13x, & 
-                  &" S_66 " )')
+                  &" S_66 " )') label
          ENDIF
 
          DO itemp=2,ntemp-1
@@ -2517,14 +2578,14 @@ IF (meta_ionode) THEN
                   el_cons_t(4,4,itemp), el_cons_t(6,6,itemp)
          ENDDO
       CASE(20)
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B", 13x, " C_11 ", 13x,&
-                  &" C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", 13x,&
-                  &" C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ")')
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B", 13x, " C_11 ", 13x,&
+             &" C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", 13x,&
+             &" C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ")') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K", 13x, " S_11 ", 13x,&
-                  &" S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", 13x,&
-                  &" S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ")')
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K", 13x, " S_11 ", 13x,&
+             &" S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", 13x,&
+             &" S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ")') label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,10e20.12)') temp(itemp), b0_t(itemp), &
@@ -2535,14 +2596,14 @@ IF (meta_ionode) THEN
                   el_cons_t(6,6,itemp)
          ENDDO
       CASE(18)
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", &
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ", &
                   & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_33 ", 13x, "C_44", &
-                  & 13x, " C_66 ", 13x, " C_16 ")')
+                  & 13x, " C_66 ", 13x, " C_16 ")') label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", &
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ", &
                   & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_33 ", 13x, "S_44", &
-                  & 13x, " S_66 ", 13x, " S_16 ")')
+                  & 13x, " S_66 ", 13x, " S_16 ")') label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,8e20.12)') temp(itemp), b0_t(itemp), &
@@ -2556,16 +2617,18 @@ IF (meta_ionode) THEN
             !
             !  b unique
             !
-            IF (iflag==0) THEN
-               WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", &
-               & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", &
-               & 13x, " C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ", &
-               & 13x, " C_15 ", 13x, " C_25 ", 13x, " C_35 ", 13x, " C_46 ")')
+            IF (MOD(iflag,2)==0) THEN
+               WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ", &
+             & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", &
+             & 13x, " C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ", &
+             & 13x, " C_15 ", 13x, " C_25 ", 13x, " C_35 ", 13x, " C_46 ")')&
+               label
             ELSE
-               WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", &
+               WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ", &
                & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", &
-               & 13x, " S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ", &
-               & 13x, " S_15 ", 13x, " S_25 ", 13x, " S_35 ", 13x, " S_46 ")')
+             & 13x, " S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ", &
+             & 13x, " S_15 ", 13x, " S_25 ", 13x, " S_35 ", 13x, " S_46 ")')& 
+               label
             ENDIF
             DO itemp=2,ntemp-1
                WRITE(iu_el_cons,'(e16.8,14e20.12)') temp(itemp), b0_t(itemp),&
@@ -2581,16 +2644,18 @@ IF (meta_ionode) THEN
             !
             !  c unique
             !
-            IF (iflag==0) THEN
-               WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ",13x," C_11 ",  &
-               & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", &
-               & 13x, " C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ", &
-               & 13x, " C_16 ", 13x, " C_26 ", 13x, " C_36 ", 13x, " C_45 ")')
+            IF (MOD(iflag,2)==0) THEN
+               WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ",13x," C_11 ",  &
+             & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", &
+             & 13x, " C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ", &
+             & 13x, " C_16 ", 13x, " C_26 ", 13x, " C_36 ", 13x, " C_45 ")') &
+               label
             ELSE
-               WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ",13x," S_11 ",  &
-               & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", &
-               & 13x, " S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ", &
-               & 13x, " S_16 ", 13x, " S_26 ", 13x, " S_36 ", 13x, " S_45 ")')
+               WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ",13x," S_11 ",  &
+             & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", &
+             & 13x, " S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ", &
+             & 13x, " S_16 ", 13x, " S_26 ", 13x, " S_36 ", 13x, " S_45 ")') &
+               label
             ENDIF
             DO itemp=2,ntemp-1
                WRITE(iu_el_cons,'(e16.8,14e20.12)') temp(itemp), b0_t(itemp),&
@@ -2604,20 +2669,22 @@ IF (meta_ionode) THEN
             ENDDO
          ENDIF
       CASE(2)
-         IF (iflag==0) THEN
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " B ", 13x, " C_11 ", &
-               & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", &
-               & 13x, " C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ", &
-               & 13x, " C_14 ", 13x, " C_15 ", 13x, " C_16 ", 13x, " C_24 ", &
-               & 13x, " C_25 ", 13x, " C_26 ", 13x, " C_34 ", 13x, " C_35 ", &
-               & 13x, " C_36 ", 13x, " C_45 ", 13x, " C_46 ", 13x, " C_56 ")')
+         IF (MOD(iflag,2)==0) THEN
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " B ", 13x, " C_11 ", &
+             & 13x, " C_12 ", 13x, " C_13 ", 13x, " C_22 ", 13x, " C_23 ", &
+             & 13x, " C_33 ", 13x, " C_44 ", 13x, " C_55 ", 13x, " C_66 ", &
+             & 13x, " C_14 ", 13x, " C_15 ", 13x, " C_16 ", 13x, " C_24 ", &
+             & 13x, " C_25 ", 13x, " C_26 ", 13x, " C_34 ", 13x, " C_35 ", &
+             & 13x, " C_36 ", 13x, " C_45 ", 13x, " C_46 ", 13x, " C_56 ")')&
+             label
          ELSE
-            WRITE(iu_el_cons,'("#",5x,"   T  ", 10x, " K ", 13x, " S_11 ", &
-               & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", &
-               & 13x, " S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ", &
-               & 13x, " S_14 ", 13x, " S_15 ", 13x, " S_16 ", 13x, " S_24 ", &
-               & 13x, " S_25 ", 13x, " S_26 ", 13x, " S_34 ", 13x, " S_35 ", &
-               & 13x, " S_36 ", 13x, " S_45 ", 13x, " S_46 ", 13x, " S_56 ")')
+            WRITE(iu_el_cons,'("#",5x, a7, 9x, " K ", 13x, " S_11 ", &
+             & 13x, " S_12 ", 13x, " S_13 ", 13x, " S_22 ", 13x, " S_23 ", &
+             & 13x, " S_33 ", 13x, " S_44 ", 13x, " S_55 ", 13x, " S_66 ", &
+             & 13x, " S_14 ", 13x, " S_15 ", 13x, " S_16 ", 13x, " S_24 ", &
+             & 13x, " S_25 ", 13x, " S_26 ", 13x, " S_34 ", 13x, " S_35 ", &
+             & 13x, " S_36 ", 13x, " S_45 ", 13x, " S_46 ", 13x, " S_56 ")')&
+               label
          ENDIF
          DO itemp=2,ntemp-1
             WRITE(iu_el_cons,'(e16.8,24e20.12)') temp(itemp), b0_t(itemp), &
@@ -2943,11 +3010,13 @@ RETURN
 END SUBROUTINE expand_el_cons
 
 !-------------------------------------------------------------------------
-SUBROUTINE write_macro_el_on_file(temp, ntemp, macro_el_t, filename)
+SUBROUTINE write_macro_el_on_file(temp, ntemp, macro_el_t, filename, iflag)
 !-------------------------------------------------------------------------
 !
 ! This routine creates a file with macro-elasticity variables as a function 
 ! of temperature.
+! iflag 0 means that temp contains the temperature
+! iflag 1 means that temp contains the pressure
 !
 
 USE kinds,      ONLY : DP
@@ -2955,12 +3024,13 @@ USE io_global,  ONLY : meta_ionode, meta_ionode_id, stdout
 USE mp_world,   ONLY : world_comm
 USE mp,         ONLY : mp_bcast
 IMPLICIT NONE
-INTEGER, INTENT(IN) :: ntemp
+INTEGER, INTENT(IN) :: ntemp, iflag
 REAL(DP), INTENT(IN) :: temp(ntemp), macro_el_t(8,ntemp)
 CHARACTER(LEN=*), INTENT(IN) :: filename
 
 REAL(DP) :: macro_el_t_aver(4,ntemp) !Reuss-Voigt-Hill variables
 INTEGER :: itemp, iu_macro_el, ios
+CHARACTER(LEN=7) :: label
 INTEGER :: find_free_unit
 
 iu_macro_el=find_free_unit()
@@ -2970,13 +3040,18 @@ IF (meta_ionode) &
 30 CALL mp_bcast(ios, meta_ionode_id, world_comm)
    CALL errore('write_macro_el_on_file','opening macro elasticity file',&
                                                              ABS(ios))
+IF (iflag==0) THEN
+   label="T (K)"
+ELSE
+   label="p(kbar)"
+ENDIF
 
 IF (meta_ionode) THEN
    WRITE(iu_macro_el,'("#",2x,"b0: bulk modulus (kbar), e0: Young modulus (kbar), g0: & 
                                   &shear modulus (kbar), nu: Poisson ratio")')
    WRITE(iu_macro_el,'("#",2x,"v: Voigt average, r: Reuss average")')
-   WRITE(iu_macro_el,'("#",2x,"T  ", 20x, "b0v ", 13x, "e0v ", 13x, "g0v ",  &
-               & 13x, "  nuv", 13x, "   b0r", 13x, "e0r ", 13x, "g0r ", 13x, "nur ")')
+   WRITE(iu_macro_el,'("#",2x,a7, 20x, "b0v ", 13x, "e0v ", 13x, "g0v ",  &
+               & 13x, "  nuv", 13x, "   b0r", 13x, "e0r ", 13x, "g0r ", 13x, "nur ")') label
    DO itemp=2,ntemp-1
       
       macro_el_t_aver(1,itemp) = (macro_el_t(1,itemp)+macro_el_t(5,itemp))*0.5_DP
@@ -3009,8 +3084,8 @@ IF (meta_ionode) THEN
    WRITE(iu_macro_el,'("#",2x,"b0: bulk modulus (kbar), e0: Young modulus (kbar), g0: & 
                                   &shear modulus (kbar), nu: Poisson ratio")')
    WRITE(iu_macro_el,'("#",2x,"v: Voigt average, r: Reuss average")')
-   WRITE(iu_macro_el,'("#",2x,"T  ", 20x, "b0 ", 13x, "e0 ", 13x, "g0 ",  &
-                                                             & 13x, "  nu")')
+   WRITE(iu_macro_el,'("#",2x,a7, 20x, "b0 ", 13x, "e0 ", 13x, "g0 ",  &
+                                                  & 13x, "  nu")') label
    DO itemp=2,ntemp-1
 
       WRITE(iu_macro_el,'(e16.8, 8e18.10)') temp(itemp), macro_el_t_aver(1,itemp), &
@@ -3025,11 +3100,13 @@ RETURN
 END SUBROUTINE write_macro_el_on_file
 
 !-------------------------------------------------------------------------
-SUBROUTINE write_sound_on_file(temp, ntemp, v_t, filename)
+SUBROUTINE write_sound_on_file(temp, ntemp, v_t, filename, iflag)
 !-------------------------------------------------------------------------
 !
 ! This routine creates a file with sound velocities as a function 
-! of temperature.
+! of temperature or of pressure.
+! flag=0 temp contains the temperature
+! flag=1 temp contains the pressure
 !
 
 USE kinds,      ONLY : DP
@@ -3037,12 +3114,13 @@ USE io_global,  ONLY : meta_ionode, meta_ionode_id, stdout
 USE mp_world,   ONLY : world_comm
 USE mp,         ONLY : mp_bcast
 IMPLICIT NONE
-INTEGER, INTENT(IN) :: ntemp
+INTEGER, INTENT(IN) :: ntemp, iflag
 REAL(DP), INTENT(IN) :: temp(ntemp), v_t(3,ntemp)
 CHARACTER(LEN=*), INTENT(IN) :: filename
 
 INTEGER :: itemp, iu_sound, ios
 INTEGER :: find_free_unit
+CHARACTER(LEN=7) :: label
 
 iu_sound=find_free_unit()
 IF (meta_ionode) &
@@ -3051,11 +3129,16 @@ IF (meta_ionode) &
 30 CALL mp_bcast(ios, meta_ionode_id, world_comm)
    CALL errore('write_sound_on_file','opening sound velocities file',&
                                                              ABS(ios))
+IF (iflag==0) THEN
+   label='T (K)  '
+ELSE
+   label='p(kbar)'
+ENDIF
 
 IF (meta_ionode) THEN
    WRITE(iu_sound,'("#",2x,"V_P: compressional velocity (m/s), V_B: bulk &
                       &velocity (m/s), V_G: shear velocity (m/s)")')
-   WRITE(iu_sound,'("#",2x,"T  ", 20x, "V_P ", 13x, "V_B ", 13x, "V_G ")')
+   WRITE(iu_sound,'("#",2x,a7, 20x, "V_P ", 13x, "V_B ", 13x, "V_G ")') label
    DO itemp=2,ntemp-1
       WRITE(iu_sound,'(e16.8, 8e18.10)') temp(itemp), v_t(1,itemp), &
                                                 v_t(2,itemp), v_t(3,itemp)
@@ -3066,5 +3149,55 @@ ENDIF
 
 RETURN
 END SUBROUTINE write_sound_on_file
+
+!-----------------------------------------------------------------------
+FUNCTION get_ec_type(laue, ibrav)
+!-----------------------------------------------------------------------
+INTEGER :: get_ec_type
+INTEGER, INTENT(IN) :: laue, ibrav
+
+INTEGER :: itype, aux_type
+
+aux_type=0
+DO itype=1,ec_types
+   IF (ec_laue_code(itype)==laue) aux_type=itype
+ENDDO
+IF (aux_type==0) CALL errore('get_ec_type','laue class not available',1)
+!
+!  For these laue classes the type depends on the bravais lattice
+!
+!  Monoclinic can be b-unique (ec_type 12) or c-unique (ec_type 13)
+!
+IF (laue==16) THEN
+   IF (ibrav>0) THEN
+      aux_type=12
+   ELSE
+      aux_type=13
+   ENDIF
+ENDIF
+!
+!  D_3d can have hexagonal or trigonal lattice
+!
+IF (laue==25) THEN
+   IF (ibrav==4) THEN
+      aux_type=5
+   ELSE
+      aux_type=7
+   ENDIF
+ENDIF
+!
+!  S_6 can have hexagonal or trigonal lattice
+!
+IF (laue==27) THEN
+   IF (ibrav==4) THEN
+      aux_type=6
+   ELSE
+      aux_type=8
+   ENDIF
+ENDIF
+
+get_ec_type=aux_type
+RETURN
+END FUNCTION get_ec_type
 
 END MODULE elastic_constants
